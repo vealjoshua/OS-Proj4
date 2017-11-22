@@ -1,0 +1,132 @@
+head	1.3;
+access;
+symbols;
+locks; strict;
+comment	@ * @;
+
+
+1.3
+date	2016.11.09.03.48.07;	author o1-sangha;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.11.08.23.15.00;	author o1-sangha;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.11.04.04.07.32;	author o1-sangha;	state Exp;
+branches;
+next	;
+
+
+desc
+@@
+
+
+1.3
+log
+@Done
+@
+text
+@#ifndef SHARE_H
+#define SHARE_H
+
+
+
+typedef struct Clock
+{
+  /*NanoSec and Second are the computer time that everything runs from */
+  int nanoSec; // nanoseconds will count up to 1000000000
+  int second; 
+  
+  /* idletime is the time when no process is running, This is added up in oss.c */
+  int idleTimeNano; //countin the Time when no process is made
+  int idleTimeSec;
+ 
+  /*Over head Time is added when the Queue's are managing processess */
+  int overHeadNano; //counting the Time when OSS is managing users
+  int overHeadSec;
+  
+  /*This keeps track of total the amount of time all process spent doing work */
+  int TotalNanoInSys;
+  int TotalSecInSys;
+  
+  /*Time when the User is waiting for their turn to go */
+  int userWaitNano;
+  int userWaitSec;
+}systemClock;
+
+typedef struct PCB
+{
+	pid_t userPid; 
+	int priority; //queue number of the process
+	int timeQuantum; // time quantum  dependent on which priority
+	int valid; //if 0 i can put something new here
+	int fullRunTime; //this is the total time the processor need to run
+    int timeInSys; // total time in the system
+	int turn; //shows the user if the oss has scheduled it to run
+	int intIO; //IF this is 1 there is an IO intereput else no IO
+	int randIOTime; //this is the randome time that is send when IO is called
+}PCB; // Processor control block
+
+typedef struct queue
+{
+	int index; // 0-18 pcb location
+	int queuePlace; //line number helps delete any pcb from the list
+	struct queue *next;
+}queue;
+
+static unsigned int g_seed;
+
+// Used to seed the generator.           
+inline void fast_srand(int seed) {
+    g_seed = seed;
+}
+
+// Compute a pseudorandom integer.
+// Output value in range [0, 32767]
+inline int fast_rand(void) {
+    g_seed = (214013*g_seed+2531011);
+    return (g_seed>>16)&0x7FFF;
+}
+
+#endif
+@
+
+
+1.2
+log
+@Checking in before I cange anything
+@
+text
+@d24 3
+a26 1
+  // int nano
+d35 2
+a36 2
+	long long int fullRunTime; //this is the total time the processor need to run
+    long long int timeInSys; // total time in the system
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d8 1
+d11 14
+d31 1
+d33 2
+a34 3
+	int timeUsed; //time used during most recent scheduling
+	long int totalTime; //total time used
+    long int timeInSys; // total time in the system
+d36 2
+d42 2
+a43 1
+	int index; // 0-18 numbered pcb
+d46 14
+@

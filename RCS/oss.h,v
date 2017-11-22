@@ -1,0 +1,167 @@
+head	1.3;
+access;
+symbols;
+locks; strict;
+comment	@ * @;
+
+
+1.3
+date	2016.11.09.03.48.07;	author o1-sangha;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.11.08.23.15.00;	author o1-sangha;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.11.04.04.07.32;	author o1-sangha;	state Exp;
+branches;
+next	;
+
+
+desc
+@New files to hold all the header info
+@
+
+
+1.3
+log
+@Done
+@
+text
+@#ifndef OSS_H
+#define OSS_H
+
+/* All the includes of the Oss.c file */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <time.h>
+#include <signal.h>
+#include <error.h>
+#include <assert.h>
+#include <sys/msg.h>
+#include <errno.h> 
+#include "share.h"
+
+#define  NANOSECOND    1000000000
+
+
+
+
+
+/* Global Variables for Oss.c */
+int z = 20; //The Seconds time limit on the children running 
+int x = 18; //Number of slaves 
+
+
+
+/*Statistic values */
+static int ioCount = 0;  //just for stats keeps track of all the I/O E
+static int processMade = 0; //counts up when ever a new process is made
+static int processFinished = 0; //Counting How many process I finished 
+int printLineCount = 0; //keeps track of how many lines in the .out file limit 2000
+FILE *filePtr; //file ptr to write to file global so I don't have to pass it
+//I close filePtr in releaseMem() because if any erorr or program finishes releaseMem() is called
+
+/* Queue's Defined here */
+int queue0Location = 0; //keeps track of the location number in each queue
+int q1Location = 0;
+int q2Location = 0;
+int q3Location = 0;
+int pcbArr[18]; //keep track of the pcb's
+queue *queue0 = NULL; // holds queue0 
+queue *q1 = NULL; 
+queue *q2 = NULL;
+queue *q3 = NULL;
+queue qArray [2]; //Array's To hold all the queue
+
+systemClock *computerTime; //To handel time
+PCB *pcb; //making array of structs
+int pcbID = 0;
+int clockID = 0; // Id for 
+key_t PCBkey = 1994; // Key for the pcb
+key_t Clockkey = 1991;
+
+//prototypes for oss.c
+void comOptions (int argc, char **argv , int *x, int *z, char **filename); //Command options ofr -t and -s , -l
+void displayHelpMesg(); //displays the help message
+void validate(int *x,int temp,char y); //check for mistakes x(number of process) and z(alarm time vlaues)
+void test(int x, int z,char*file);  // this is just to print out put
+
+/* Argument Handlers for alarm and crtl C*/
+void INThandler(int sig);  // handeling Ctrl^C signal
+void on_alarm(int signal);  // handeling the alarm(z) signal
+void releaseMem(); //one function to delet the shared memory and message queue's 
+
+/*Function to run the Queue's */
+int runQ0(int *count,queue *current);	
+void runQ1(int *count,int qnum); // Q1 - Q3 are just copies of each other
+void runQ2(int *count,int qnum); //I kept getting segfaults If was using just one with with qArray
+void runQ3(int *count,int qnum);
+
+/*Add's Time for the OSS */
+void AddTime(int choice, int change);
+
+int random_number(int min_num, int max_num); //Random number generator
+void makeNewProcess(char * pcbArrLocationPass,char *pcbKeypass,char *pcbIDpass,char *clockIDpass);
+void insertINqueue(queue *head, int index); //insert into the queue
+void printQueue(queue *head);  //Testing function to see whats currently in the Queue
+int checkIfQueueEmpty(queue *head);  //returns 0 or 1 depending if queue is empty
+void remove_by_index(queue **head, int n);  //Removes pcb number from the queue
+int findValidPCB (); //Goes through the entire set of pcb's to find valid = 0 
+int getRandFork();  //this returns a random time at which to fork off a new process -> used fast rand for this
+void setUpPCB(int i, pid_t childPid); //This is where the PCB's are assigned 
+void resetPCB(int i);  //When ever a pcb valid is = 0 this resets all PCB valies
+int getIO(pid_t childPid); // returns 0 or 1 for if IO
+
+//Prints all Data to the File
+void printToFile(int choice, int index);
+/*This Helps keep track of what is being printed */
+/*Choice is What the user would like to printt */
+void calc (int pm, int sec, int nsec); //does math for math sakes 
+void calc2 (int pm, int sec, int nsec);
+
+#endif
+@
+
+
+1.2
+log
+@Checking in before I cange anything
+@
+text
+@d31 5
+d97 2
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d24 32
+d57 1
+a57 1
+void comOptions (int argc, char **argv , int *x, int *z, char **filename);
+d59 1
+a59 1
+void validate(int *x,int temp,char y); //
+d61 2
+a62 1
+int random_number(int min_num, int max_num);
+a65 2
+void insertINqueue(queue **head, int index); //insert into the queue
+void printQueue(queue *head);
+d67 20
+d88 4
+@

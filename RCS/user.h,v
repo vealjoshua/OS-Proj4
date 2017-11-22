@@ -1,0 +1,76 @@
+head	1.2;
+access;
+symbols;
+locks; strict;
+comment	@ * @;
+
+
+1.2
+date	2016.11.09.03.48.07;	author o1-sangha;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.11.08.23.15.00;	author o1-sangha;	state Exp;
+branches;
+next	;
+
+
+desc
+@clear
+@
+
+
+1.2
+log
+@Done
+@
+text
+@#ifndef USER_H
+#define USER_H
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <time.h>
+#include <signal.h>
+#include <error.h>
+#include <assert.h>
+#include <sys/msg.h>
+#include <errno.h>
+#include "share.h"
+#include <stdio.h>
+
+#define  NANOSECOND    1000000000
+
+void INThandler(int sig); // for the ctrl^C
+void TimeHandler(int sig); // for alarm (z)
+void sigDie(int sig);  // precations 
+int random_number(int min_num, int max_num); // was not used
+void AddTime(int change); //indremetns time
+void AddTimeWait();// add's user wait time
+void releaseMem();
+
+
+
+
+#endif@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d26 2
+a27 2
+void sigDie(int sig); 
+int random_number(int min_num, int max_num);
+d29 1
+@

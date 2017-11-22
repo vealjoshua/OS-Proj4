@@ -1,0 +1,291 @@
+head	1.4;
+access;
+symbols;
+locks; strict;
+comment	@ * @;
+
+
+1.4
+date	2016.11.09.03.47.49;	author o1-sangha;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.11.08.23.14.31;	author o1-sangha;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.11.04.04.06.59;	author o1-sangha;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.10.26.23.54.11;	author o1-sangha;	state Exp;
+branches;
+next	;
+
+
+desc
+@STarting Project
+@
+
+
+1.4
+log
+@Done
+@
+text
+@#include "user.h"
+
+PCB *pcb; //making array of structs
+systemClock *computerTime;
+int pcbID = 0;
+int clockID = 0;
+
+int main(int argc, char *argv[])
+{
+	signal(SIGALRM, TimeHandler); // getting is alarm is activated
+	signal(SIGQUIT,INThandler); //Handels SIGQUIT
+	signal(SIGINT, INThandler);  // Catching crtl^c
+	signal(SIGUSR1, sigDie); //Checking if This process needs to die
+	
+	int pcbLocation = atoi(argv[0]); // making key for access 
+	key_t PCBkey =  atoi(argv[1]);
+	pcbID = atoi(argv[2]);
+	clockID = atoi(argv[3]);
+	
+	/* Attaching to the shared memeory for computerTime The OSS CLOCK */
+	computerTime = (systemClock*)shmat(clockID, NULL, 0);
+	if(computerTime->nanoSec == (int)-1) // Now we attach the segment to our data space.
+	{
+		releaseMem();
+		perror("Shmat error in Main computerTime");
+		exit(1);
+	}
+	
+	/* Attaching to the shared memeory for the PCB*/
+	pcb = (PCB*)shmat(pcbID, NULL, 0);
+	if((void*)pcb == (void*)-1)
+	{
+		perror("shmat child pcb");
+		releaseMem();
+		exit(1);
+	}
+	// sleep(2);
+	int temp = 0;
+	
+	while(1)
+	{
+		if(pcb[pcbLocation].turn == 1)
+		{
+			if(pcb[pcbLocation].fullRunTime <= pcb[pcbLocation].timeInSys)
+			{
+				computerTime->TotalNanoInSys += pcb[pcbLocation].timeInSys;
+				if(computerTime->TotalNanoInSys >= NANOSECOND)
+				{
+					if(computerTime->TotalNanoInSys > NANOSECOND)
+						temp = computerTime->TotalNanoInSys - NANOSECOND;
+					
+					computerTime->TotalSecInSys += 1;
+					computerTime->TotalNanoInSys = temp;
+					temp = 0;
+				}
+				pcb[pcbLocation].turn = 0;
+				pcb[pcbLocation].valid = 0;
+				releaseMem();
+				break;
+			}
+			else
+			{
+				if(pcb[pcbLocation].intIO)
+				{
+					AddTime(pcb[pcbLocation].timeQuantum);
+					pcb[pcbLocation].timeInSys+=pcb[pcbLocation].randIOTime;
+					pcb[pcbLocation].randIOTime = 0;
+					pcb[pcbLocation].intIO = 0;
+				}
+				else
+				{
+					AddTime(pcb[pcbLocation].timeQuantum);
+					pcb[pcbLocation].timeInSys+=pcb[pcbLocation].timeQuantum;
+				}
+				// printf("User %d Addedtime: %d\n", pcb[pcbLocation].userPid,computerTime->nanoSec);
+			}
+			pcb[pcbLocation].turn = 0;
+		}
+		else
+		{
+			AddTimeWait(); // addint wait time for the user
+		}
+	}
+	releaseMem();
+	exit(1);
+	return 0;
+}
+void INThandler(int sig)
+{ 
+  signal(sig, SIG_IGN); // ignoring any signal passed to the INThandler
+  fprintf(stderr, "\nCtrl^C Called, Process Exiting\n");
+  releaseMem();
+  kill(getpid(), SIGKILL);
+}
+void TimeHandler(int sig)
+{
+  releaseMem();
+  //shmctl(shmid, IPC_RMID, NULL); //mark shared memory for deletion
+  fprintf(stderr, "\nOut of Time, Process %d Exiting\n", getpid());
+  kill(getpid(), SIGKILL);
+  //exit(0);
+}
+void AddTime(int change)
+{
+	// printf("adding time\n");
+	computerTime->nanoSec +=change; //adding schedular time for removing the process
+	if(computerTime->nanoSec >= NANOSECOND)
+	{
+		computerTime->second +=1;
+		computerTime->nanoSec = 0;
+	}	
+}
+void AddTimeWait()
+{
+	int temp = 0;
+	computerTime->nanoSec +=1; //adding schedular time for removing the process and changing to next proceses
+	computerTime->userWaitNano +=1;
+	if(computerTime->nanoSec >= NANOSECOND)
+	{
+		computerTime->second +=1;
+		if(computerTime->nanoSec > NANOSECOND)
+			temp = computerTime->nanoSec - NANOSECOND;
+		computerTime->nanoSec = temp;
+		temp = 0;
+	}
+	
+	if(computerTime->userWaitNano >= NANOSECOND)
+	{
+		computerTime->userWaitSec +=1;
+		if(computerTime->userWaitNano > NANOSECOND)
+			temp = computerTime->userWaitNano - NANOSECOND;
+		computerTime->userWaitNano = temp;
+		temp = 0;
+	}
+}
+void sigDie(int sig)
+{ 
+	printf("/t/t/tExiting pid: %d\n", getpid());
+	releaseMem();
+	exit(0);
+}
+void releaseMem()
+{
+	if((shmctl(pcbID , IPC_RMID, NULL)) == -1) //detach from shared memory
+	{
+		perror("Error in shmdt in Parent");
+	}
+	if((shmctl(clockID, IPC_RMID, NULL)) == -1)//mark shared memory for deletion
+	{ 
+		printf("Error in shmclt"); 
+	}/*	
+	if ((msgctl(dieMsgID, IPC_RMID, NULL) == -1))
+	{
+		perror("Erorr in msgctl ");
+	}	*/
+}
+
+@
+
+
+1.3
+log
+@Checking in on the last moment so I don't mess up
+@
+text
+@d79 4
+d112 23
+@
+
+
+1.2
+log
+@Trying so hard to finish.
+@
+text
+@d1 1
+a1 22
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <getopt.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <time.h>
+#include <signal.h>
+#include <error.h>
+#include <assert.h>
+#include <sys/msg.h>
+#include <errno.h>
+#include "share.h"
+#include <stdio.h>
+
+void INThandler(int sig); // for the ctrl^C
+void TimeHandler(int sig); // for alarm (z)
+int random_number(int min_num, int max_num);
+void releaseMem();
+d4 1
+a4 1
+// PCB  data; 
+d6 1
+a6 1
+
+d13 1
+d17 2
+d20 3
+a22 2
+	/* Creating a shared memeory for the struct */
+	if((pcbID = shmget(PCBkey, sizeof(PCB), 666)) == -1)
+d24 2
+a25 2
+		perror("shmget child pcb");
+		// releaseMem();
+d28 2
+d34 1
+a34 1
+		// releaseMem();
+d38 42
+a79 2
+	printf("Child #%d Pid: %d\n\n", pcbLocation,pcb[pcbLocation].userPid);
+	// sleep(20);
+d81 1
+a81 2
+	printf("Child %d pid: %d\n", pcbLocation, getpid());
+	exit(0);
+d99 16
+d121 1
+a121 1
+	/*if((shmctl(clockID, IPC_RMID, NULL)) == -1)//mark shared memory for deletion
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 26
+a26 1
+#include <iosteam>
+d29 47
+a75 3
+
+
+int main()
+d77 13
+a90 3
+
+  return 0;
+}
+@

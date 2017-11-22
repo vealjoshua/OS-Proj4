@@ -1,0 +1,1384 @@
+head	1.4;
+access;
+symbols;
+locks; strict;
+comment	@ * @;
+
+
+1.4
+date	2016.11.09.03.47.49;	author o1-sangha;	state Exp;
+branches;
+next	1.3;
+
+1.3
+date	2016.11.08.23.14.31;	author o1-sangha;	state Exp;
+branches;
+next	1.2;
+
+1.2
+date	2016.11.04.04.06.59;	author o1-sangha;	state Exp;
+branches;
+next	1.1;
+
+1.1
+date	2016.10.26.23.54.11;	author o1-sangha;	state Exp;
+branches;
+next	;
+
+
+desc
+@Starting Project
+@
+
+
+1.4
+log
+@Done
+@
+text
+@#include "oss.h"
+//all prototypes/includes in oss.h for easy to read and follow
+
+
+int main(int argc, char **argv)
+{
+	signal(SIGALRM, on_alarm); // getting is alarm is activated
+	signal(SIGQUIT,INThandler); //Handels SIGQUIT
+	signal(SIGINT, INThandler);  // Catching crtl^c
+	
+	char *filename = "test.out";  // file name for to be written to
+
+	/* Checking for arguments */
+	if (argc < 2) //Cheking if the user is running the program with arguments 
+	{
+		printf("Running Program without any Commands, default options will be apply.\n");
+	}
+	else //calling commmand options if user inputs commands 
+	{
+		comOptions(argc,argv,&x,&z,&filename); //sending commands to getopt
+	}
+	test(x,z,filename);
+	
+	/*filePtr global to make it sure easy for me */
+	filePtr = fopen (filename, "w"); //using W to override the previous file
+    if (filePtr == 0)
+    {
+      perror("Could not open file ");
+      exit(0);
+    }
+	
+	/* Creating a shared memeory for computerTime The OSS CLOCK */
+	if((clockID = shmget(Clockkey, sizeof(systemClock), IPC_CREAT | 0666)) < 0)  // creating the shared memory 
+        {
+		releaseMem();
+		perror("shmget in parent computerTime");
+		exit(1);
+	}
+	computerTime = (systemClock*)shmat(clockID, NULL, 0);
+	if(computerTime->nanoSec == (int)-1) // Now we attach the segment to our data space.
+	{
+		releaseMem();
+		perror("Shmat error in Main computerTime");
+		exit(1);
+	}
+	
+	
+	computerTime->nanoSec = 0;
+	computerTime->second  = 0; //starting at 0 seconds
+	
+	computerTime->idleTimeNano = 0;
+	computerTime->idleTimeSec = 0;
+	
+	computerTime->overHeadNano = 0;
+	computerTime->overHeadSec = 0;
+	
+	computerTime->userWaitNano = 0;
+	computerTime->userWaitSec = 0;
+	
+	
+	/* Creating a shared memeory for the PCB struct */
+	if((pcbID = shmget(PCBkey, sizeof(pcb[x]), IPC_CREAT | 0666)) == -1)
+	{
+		perror("shmget parent pcb");
+		releaseMem();
+		exit(1);
+	}
+	pcb = (PCB*)shmat(pcbID, NULL, 0);
+	if((void*)pcb == (void*)-1)
+	{
+		perror("shmat parent pcb");
+		releaseMem();
+		exit(1);
+	}
+
+	
+	/*Forking of children */
+	char* pcbArrLocationPass = malloc(sizeof(int));
+	char* pcbKeypass = malloc(sizeof(int));
+	char* pcbIDpass = malloc(sizeof(int));
+	char* clockIDpass = malloc(sizeof(int));
+	sprintf(clockIDpass, "%d", clockID);
+	sprintf(pcbKeypass, "%d", PCBkey);
+	sprintf(pcbIDpass, "%d", pcbID);
+	
+	int forkAtRand = 0; // starting off with forking off 
+	int i = 0;
+	int getPosition = 0;
+	
+	/*setting up the Q0 - Q3 */
+	queue0= malloc(sizeof(queue));
+	queue0->index = 1000;
+	queue0->queuePlace = queue0Location; 
+	queue0->next = NULL;
+	
+	/*  queue 1 = q1   */
+	q1 = malloc(sizeof(queue));
+	q1->index = 1001;
+	q1->queuePlace = q1Location; 
+	q1->next = NULL;
+	
+	/*  queue 2 = q2   */
+	q2 = malloc(sizeof(queue));
+	q2->index = 1002;
+	q2->queuePlace = q2Location; 
+	q2->next = NULL;
+	
+	/*  queue 3 = q3   */
+	q3 = malloc(sizeof(queue));
+	q3->index = 1003;
+	q3->queuePlace = q3Location; 
+	q3->next = NULL;
+
+
+	queue *current = queue0;
+	
+	int count = 0;
+	for(count; count < x; count++)
+	{
+		pcb[count].valid = 0; //premaking all the pcb's 		
+	}
+
+	count = 0; //keeps count of how many process are running if 0 no process are running
+	int ha = 0;
+	alarm(z); //setting the alarm for 20 seconds
+
+	while (1)
+	{
+		if (count == 0) //If no procesesors made
+		{
+			AddTime(1,10000);//Adding time when the OSS is idle
+			// printf("ADDing Idle time \n");
+			// printf("process made so far: %d\n",processMade);
+		}
+		
+		if(computerTime->second >= 20)
+		{
+			printf("\nProgram Has Finished Correctly\n");
+			releaseMem();
+			int k = 0;
+			for (k=0; i<x;k++) //Precatution so killing any children proceses left alive
+			{
+				kill(pcb[k].userPid, SIGTERM); // killing em child by child
+			}
+			exit(0);
+		}
+		/*else if(computerTime->second%2)
+		{
+			int haha = 0;
+			ha +=1;
+			printf("\nProgram is Currently Running .");
+			for(haha; haha<ha; haha++)
+			{
+				printf(".");
+			}
+			printf("\n");
+		}*/
+		
+		
+		if(forkAtRand == computerTime->second)
+		{
+			if (count < x)
+			{	
+				makeNewProcess(pcbArrLocationPass,pcbKeypass,pcbIDpass,clockIDpass); //getting Random Second to fork next time
+				count++;
+				printf("Number of Process Running: %d | Total Number of Process Created: %d\n", count, processMade);
+				forkAtRand = getRandFork();
+			}
+			else
+			{
+				forkAtRand = getRandFork();
+			}
+		}
+		else if(forkAtRand <= computerTime->second || forkAtRand >= computerTime->second )
+		{
+			forkAtRand=getRandFork();
+		}
+		
+		if(checkIfQueueEmpty(queue0))
+			runQ0(&count,current);
+		else if(checkIfQueueEmpty(q1))
+			runQ1(&count,1);
+		else if(checkIfQueueEmpty(q2))
+			runQ2(&count,2);
+		else if(checkIfQueueEmpty(q3))
+			runQ3(&count,3);
+			
+		// printf("Count after Queue: %d\n", count);
+		// while()
+		
+	}
+	
+	printQueue(queue0);
+	releaseMem();
+	wait(NULL);
+	printf("exiting\n");
+
+	return 0;
+}
+void comOptions (int argc, char **argv , int *x, int *z, char **filename)
+{ 
+	int c = 0; //This is for the switch statement
+	int temp = 0;
+	static struct option long_options[] = 
+	{ 
+		{"help", no_argument, 0, 'h'},
+		{ 0,     0          , 0,  0 } 
+	};
+	int long_index = 0;
+	while((c = getopt_long_only(argc, argv, "hs:t:l:", long_options, &long_index)) != -1)
+	{
+		switch (c)
+		{
+			case 'h':  // -h
+				displayHelpMesg();
+			break;
+	  
+			case 's':
+				temp = *x;
+				*x = atoi(optarg);
+				if (*x > 20)
+				{
+					printf("Inputed: %d is to big. (Limit 20). Reverting back to default 5.\n", *x);
+					*x = temp;
+				}
+				validate(x,temp,'x');
+			break;
+
+			case 't':
+				temp = *z;
+				*z = atoi(optarg);
+				validate(z,temp,'z');
+			break;
+
+			case 'l':
+				if (optopt == 'n')
+				{
+					printf("Please enter a valid filename.");
+					return;
+				}
+				*filename = optarg;
+			break;
+      
+			case '?':
+				if (optopt == 'l')
+				{
+					printf("Command -l requires filename. Ex: -lfilename.txt | -l filename.txt.\n");
+					exit(0);
+				}
+				else if (optopt == 's')
+				{
+					printf("Commands -s requires int value. Ex: -s213| -s 2132\n");
+					exit(0);
+				}
+				else if (optopt == 'i')
+				{
+					printf("Command -y requires int value. Ex: -i213| -i 2132\n");
+					exit(0);
+				}
+				else if (optopt == 't')
+				{
+					printf("Command -z requires int value. Ex: -t13| -t 2132\n");
+					exit(0);	
+				}
+				else
+				{
+					printf("You have used an invalid command, please use -h or -help for command options, closing program.\n"); 
+					exit(0);
+				}
+				return;
+	  
+			default :
+				if (optopt == 'l')
+				{
+					printf ("Please enter filename after -l \n");
+					exit(0);
+				}
+				else if (optopt == 'n')
+				{ 
+					printf ("Please enter integer x after -n \n");
+					exit(1);
+				}
+				printf("Running Program without Commands.\n");
+			break;
+		}
+	}
+  
+}
+void displayHelpMesg()
+{
+	printf ("---------------------------------------------------------------------------------------------------------\n");
+	printf ("Please run oss or oss -arguemtns.\n");
+	printf ("----------Arguments---------------------------------------------\n");
+	printf (" -h or -help  : shows steps on how to use the program \n");
+	printf (" -s x         : x is the maximum number of slave processes spawned (default 5) \n");
+	printf (" -l filename  : change the log file name \n");
+	printf (" -t z         : parameter z is the time in seconds when the master will terminate itself (default 20) \n"); 
+	printf ("---------------------------------------------------------------------------------------------------------\n");
+	printf ("\nClosing Program.............\n\n");
+	exit(0);
+}
+void validate(int *x,int temp,char y)
+{
+  char *print;
+  char *print2;
+  if (y == 'z')
+  {
+    print = "z";
+    print2 = "-t";	  
+  }
+  else if (y == 'x')
+  {
+    print = "x";
+    print2 = "-s";	  
+  }
+  
+  
+  if (*x == 0)
+  {
+    printf("Intput invalid for %s changing %s back or default.\n",print2,print);
+    *x = temp;
+  }
+  else if (*x < 0)
+  {
+    printf("Intput invalid for %s changing %s back or default.\n",print2,print);
+    *x = temp; 
+  }
+}
+void test (int x,int z, char *file)
+{
+	printf ("--------------------------------\n");
+	printf ("Number of Slaves (x): %d\n", x);
+	printf ("Time limit       (z): %d\n", z);
+	printf ("Filename            : %s\n", file);
+	printf ("--------------------------------\n\n");
+	printf("Running Program Now.\n");
+	return;
+}
+void INThandler(int sig)
+{
+	signal(sig, SIG_IGN);
+	printf("\nCtrl^C Called. Closing All Process.\n");
+	fflush(stdout);
+	releaseMem();
+	int i =0;
+	for (i=0; i<x;i++)
+	{
+		kill(pcb[i].userPid, SIGTERM); // killing em child by children
+	}
+
+	exit(0);
+}
+void on_alarm(int signal)
+{
+	printf("Out of time killing all slave processes.\n", z);
+	printf("Time: %d.%d\n", computerTime->second,computerTime->nanoSec);
+	releaseMem();
+	int i = 0;
+	for (i=0; i<x;i++)
+	{
+		kill(pcb[i].userPid, SIGTERM); // killing em child by children
+	}
+	// signal(signal, SIG_IGN);
+    exit(0);
+}
+void releaseMem()
+{
+	printToFile(99,0);
+	fclose(filePtr);
+	if((shmctl(pcbID , IPC_RMID, NULL)) == -1) //detach from shared memory
+	{
+		perror("Error in shmdt in Parent");
+	}
+	if((shmctl(clockID, IPC_RMID, NULL)) == -1)//mark shared memory for deletion
+	{ 
+		printf("Error in shmclt"); 
+	}
+}
+
+int runQ0(int *count,queue *current)
+{
+	while(checkIfQueueEmpty(queue0))
+	{
+
+		current = queue0;
+		current = current->next;
+		if(current == NULL)
+		{
+			if (checkIfQueueEmpty(queue0) == 0)
+			{
+				return 0;
+			}
+		}
+				
+		pcb[current->index].intIO = getIO(pcb[current->index].userPid);
+		if(pcb[current->index].intIO)
+		{
+			pcb[current->index].randIOTime = random_number(0,pcb[current->index].timeQuantum); // setting the rand time to add when IO is called
+			printToFile(5,current->index);
+		}
+		pcb[current->index].turn = 1;
+		// printf("My Turn PID: %d\n", pcb[current->index].userPid);
+		while(pcb[current->index].turn == 1){} //waiting on the user to finish
+		AddTime(0,random_number(500,10000)); //overHeadTime time
+
+		if(pcb[current->index].valid == 0)
+		{
+			processFinished++;
+			int temp = current->index;
+			*count -= 1;
+			printToFile(0,temp); //Printing Messages when Function Dies
+			
+			kill(pcb[temp].userPid,SIGKILL);
+			wait(NULL);
+			
+			remove_by_index(&queue0, current->index);
+			resetPCB(temp);
+		}
+		else if(pcb[current->index].valid  == 1)
+		{
+			int temp = current->index;
+			remove_by_index(&queue0, current->index);
+			insertINqueue(queue0, temp);
+		}
+	}
+	return 0;
+}
+void runQ1(int *count,int qnum)
+{
+	queue *current = q1;
+	
+	int ifIO = 0;
+	
+	while(checkIfQueueEmpty(q1))
+	{
+		current = q1;
+		current = current->next;
+		if(current == NULL)
+		{
+			if (checkIfQueueEmpty(q1) == 0)
+			{
+				// return 0;
+				break;
+			}
+		}
+		
+		/*Changing the Time Quantum for the Priority */
+		pcb[current->index].timeQuantum = 3000000; //resetting the time Quantum to origianl 
+		pcb[current->index].timeQuantum *=qnum+1;
+		pcb[current->index].priority = qnum;
+		
+		pcb[current->index].intIO = getIO(pcb[current->index].userPid); //Getting random Number for I/O
+		if(pcb[current->index].intIO)
+		{
+			pcb[current->index].randIOTime = random_number(0,pcb[current->index].timeQuantum); // setting the rand time to add when IO is called
+			printToFile(5,current->index);
+			ifIO = 1;
+		}
+		pcb[current->index].turn = 1;
+		// printf("My Turn PID: %d\n", pcb[current->index].userPid);
+		while(pcb[current->index].turn == 1){} //waiting on the user to finish
+		AddTime(0,random_number(500,10000)); //overHeadTime time
+
+		if(pcb[current->index].valid == 0)
+		{
+			processFinished++;
+			int temp = current->index;
+			printToFile(0,temp); //Printing Messages when Function Dies
+			*count -= 1;
+			// printf("count Q1: %d\n", *count);
+
+			kill(pcb[temp].userPid,SIGKILL);
+			wait(NULL);
+					
+			remove_by_index(&q1, current->index);
+			resetPCB(temp);
+		}
+		else if(pcb[current->index].valid  == 1)
+		{
+			int temp = current->index;
+			remove_by_index(&q1, current->index);
+			if (ifIO == 1)
+			{
+				fprintf(filePtr,"\t\t\tChild Pid %d Had IO Moving to Q1 priority %d\n", pcb[temp].userPid,pcb[temp].priority);
+				insertINqueue(q1, temp);
+				ifIO = 0;
+			}
+			else
+			{
+				fprintf(filePtr,"\t\t\t\tChild Pid %d Moving to Q2\n", pcb[temp].userPid);
+				insertINqueue(q2, temp);
+			}
+		}
+	}
+	return;
+}
+void runQ2(int *count,int qnum)
+{
+	queue *current = q1;
+	
+	int ifIO = 0;
+	
+	while(checkIfQueueEmpty(q2))
+	{
+		current = q2;
+		current = current->next;
+		if(current == NULL)
+		{
+			if (checkIfQueueEmpty(q2) == 0)
+			{
+				// return 0;
+				break;
+			}
+		}
+		
+		/*Changing the Time Quantum for the Priority */
+		pcb[current->index].timeQuantum = 3000000; //resetting the time Quantum to origianl 
+		pcb[current->index].timeQuantum *=qnum+2;
+		pcb[current->index].priority = qnum;
+				
+		pcb[current->index].intIO = getIO(pcb[current->index].userPid);
+		if(pcb[current->index].intIO)
+		{
+			pcb[current->index].randIOTime = random_number(0,pcb[current->index].timeQuantum); // setting the rand time to add when IO is called
+			printToFile(5,current->index);
+			ifIO = 1;
+		}
+		pcb[current->index].turn = 1;
+		// printf("My Turn PID: %d\n", pcb[current->index].userPid);
+		while(pcb[current->index].turn == 1){} //waiting on the user to finish
+		AddTime(0,random_number(500,10000)); //overHeadTime time
+
+		if(pcb[current->index].valid == 0)
+		{
+			processFinished++;
+			int temp = current->index;
+			*count -= 1;
+			// printf("count Q2: %d\n", *count);
+			
+			printToFile(0,temp); //Printing Messages when Function Dies	
+			kill(pcb[temp].userPid,SIGKILL);
+			wait(NULL);
+					
+			remove_by_index(&q2, current->index);
+			resetPCB(temp);
+		}
+		else if(pcb[current->index].valid  == 1)
+		{
+			int temp = current->index;
+			remove_by_index(&q2, current->index);
+			if (ifIO == 1)  // I/O Happend so moving proceses to Q1
+			{
+				printToFile(3, temp);
+				insertINqueue(q1, temp);
+				ifIO = 0;
+				break;
+			}
+			else //I/O didn't happens to moving it to Q3
+			{
+				printToFile(4, temp);
+				insertINqueue(q3, temp);
+			}
+		}
+	}
+	return;
+}
+void runQ3(int *count,int qnum)
+{
+	queue *current = q3;
+	int ifIO = 0;
+	
+	while(checkIfQueueEmpty(q3))
+	{
+		current = q3;
+		current = current->next;
+		if(current == NULL)
+		{
+			if (checkIfQueueEmpty(q3) == 0)
+			{
+				// return 0;
+				break;
+			}
+		}
+		
+		/*Changing the Time Quantum for the Priority */
+		pcb[current->index].timeQuantum = 3000000; //resetting the time Quantum to origianl 
+		pcb[current->index].timeQuantum *=qnum+3;
+		pcb[current->index].priority = qnum;
+				
+		pcb[current->index].intIO = getIO(pcb[current->index].userPid);
+		if(pcb[current->index].intIO)
+		{
+			pcb[current->index].randIOTime = random_number(0,pcb[current->index].timeQuantum); // setting the rand time to add when IO is called
+			printToFile(5,current->index);
+			ifIO = 1;
+		}
+		pcb[current->index].turn = 1;
+		// printf("My Turn PID: %d\n", pcb[current->index].userPid);
+		while(pcb[current->index].turn == 1){} //waiting on the user to finish
+		AddTime(0,random_number(500,10000)); //overHeadTime time
+
+		if(pcb[current->index].valid == 0)
+		{
+			processFinished++;
+			int temp = current->index;
+			*count -= 1;
+			
+			printToFile(0,temp); //Printing Messages when Function Dies
+
+			kill(pcb[temp].userPid,SIGKILL);
+			wait(NULL);
+					
+			remove_by_index(&q3, current->index);
+			resetPCB(temp);
+		}
+		else if(pcb[current->index].valid  == 1)
+		{
+			int temp = current->index;
+			remove_by_index(&q3, current->index);
+			if (ifIO == 1)
+			{
+				// printf("\t\t\tChild Pid %d in Q3 Had IO Moving to Q1 \n", pcb[temp].userPid);
+				printToFile(2, temp);
+				insertINqueue(q1, temp);
+				ifIO = 0;
+				break;
+				
+			}
+			else
+			{
+				// printf("\t\t\t\tChild Pid %d Staying in  Q3\n", pcb[temp].userPid);
+				insertINqueue(q3, temp);
+			}
+		}
+	}
+	return;
+}
+void AddTime(int choice, int change)
+{
+	/*temp is used to keep the extra nanoseconds is they are grater than 1 bil when check */
+	int temp = 0; 
+	int c = choice;
+	switch(c)
+	{
+		case 0:
+			computerTime->nanoSec +=change; //adding schedular time for removing the process and changing to next proceses
+			computerTime->overHeadNano +=change;
+			if(computerTime->nanoSec >= NANOSECOND)
+			{
+				computerTime->second +=1;
+				if(computerTime->nanoSec > NANOSECOND)
+					temp = computerTime->nanoSec - NANOSECOND;
+				computerTime->nanoSec = temp;
+				temp = 0;
+			}
+			
+			if(computerTime->overHeadNano >= NANOSECOND)
+			{
+				computerTime->overHeadSec +=1;
+				if(computerTime->overHeadNano > NANOSECOND)
+					temp = computerTime->overHeadNano - NANOSECOND;
+				computerTime->overHeadNano = temp;
+				temp = 0;
+			}
+			
+			break;
+		case 1:
+			computerTime->nanoSec +=change; //adding schedular time for removing the process and changing to next proceses
+			computerTime->idleTimeNano +=change;
+			if(computerTime->nanoSec >= NANOSECOND)
+			{
+				computerTime->second +=1;
+				if(computerTime->nanoSec > NANOSECOND)
+					temp = computerTime->nanoSec - NANOSECOND;
+				computerTime->nanoSec = temp;
+				temp = 0;
+			}
+
+			
+			if(computerTime->idleTimeNano >= NANOSECOND)
+			{
+				computerTime->idleTimeSec +=1;
+				if(computerTime->idleTimeNano > NANOSECOND)
+					temp = computerTime->idleTimeNano - NANOSECOND;
+				computerTime->nanoSec = temp;
+				temp = 0;
+			}
+			
+			break;
+	}
+}
+void makeNewProcess(char * pcbArrLocationPass,char *pcbKeypass,char *pcbIDpass,char *clockIDpass)
+{
+	int i = 0;
+	if ((i=findValidPCB()) > -1)
+	{	
+		pid_t childPid;
+		childPid = fork();
+		
+		if (childPid < 0)
+		{
+			perror("Fork() Parent Failed"); 
+			printf("Q0\n");
+			printQueue(queue0); /*These are precations I had fork fail with I was not putting Wait(null) in a few palces */
+			printf("Q1\n");
+			printQueue(q1);
+			printf("Q2\n");
+			printQueue(q2);
+			printf("Q3\n");
+			printQueue(q3);
+			int p  = 0;
+			for (p; p<x; p++)
+			{
+				fprintf(filePtr,"Child Death Pid: %d | valid: %d | Queue %d | timeInSys %d\n",pcb[p].userPid,pcb[p].valid,pcb[p].priority,pcb[p].timeInSys);
+			}
+			kill(getpid(), SIGALRM);	
+			releaseMem();
+			exit(1); 
+		}
+		else if (childPid == 0)
+		{
+			sprintf(pcbArrLocationPass, "%d" , i);
+			execl("./user",pcbArrLocationPass, pcbKeypass, pcbIDpass,clockIDpass,NULL);
+				perror("Child failed to execl");
+		}
+		setUpPCB(i, childPid); //setting up everything aobut PCB here
+		processMade++; //Counting up the number of process made
+		printToFile(1, i);
+	}
+}
+
+void insertINqueue(queue *head, int index)
+{
+	queue * current = head;
+	int locate = 0;
+	
+	/* Counting up so I can keep track of what in my queue */
+	if(current->index == 1000)
+		locate = ++queue0Location;
+	else if(current->index == 1001)
+		locate = ++q1Location;
+	else if(current->index == 1002)
+		locate = ++q2Location;
+	else if(current->index == 1003)
+		locate = ++q3Location;
+
+	while(current->next != NULL)
+	{
+		current = current->next;
+	}
+	
+	/*Adding to the end of the Qeueu*/
+	current->next = malloc(sizeof(queue));
+	current->next->index = index;
+	current->next->queuePlace = locate;
+	current->next->next = NULL;
+}
+void printQueue(queue *head)
+{
+	queue *current = head;
+	
+	while(current != NULL)
+	{
+		printf("Place: %d , index: %d\n", current->queuePlace, current->index);
+		current = current->next;
+	}
+}
+int checkIfQueueEmpty(queue *head)
+{
+	int count = 0;
+	queue *current = head;
+	while(current != NULL)
+	{
+		count++;
+		current = current->next;
+	}
+	
+	if(count == 1) //if there is only one thing (the head)in the linked list then its empty
+	{
+		return 0;
+	}
+	else
+	{
+		return 1;
+	}
+}
+
+void remove_by_index(queue **head, int n)
+{
+	/*This function Removes a person from the queue */
+	/*How this works is that I find the index (pcb location for user) that I want to delete.
+	  I then use a while loop to find where the index is located, and
+	  note down the queuePlace(Like it's in a line that's what queuePlace 
+	  represents). Then I reset Current to the front of the line and 
+	  find one person ahed of the queuePlace. I take that ahed person and
+	  put their next to the person behind N (the person I want to delete),
+	  and free up (delete) the Nth person. Then I make sure that everyone else moves 
+	  up in line by decrementing their QueuePlace and decrementing the global
+	  queue0Location */
+	  
+	int i = 0;
+	int locate = 0; 
+	int retval = -1;
+	
+	queue * current = *head;
+	queue * temp_node = NULL;
+	
+	
+	/*if (locate == 0)
+	{
+		return;
+	}*/
+	
+	while (current != NULL)
+	{
+		if(current->index == n)
+		{
+			locate = current->queuePlace;
+			// printf("located\n ");
+			// printf("Place: %d , index: %d\n", current->queuePlace, current->index);
+			break;
+		}
+		current = current->next;
+	}
+
+	int count = 0;
+	current = *head;
+	// printf("reset\n ");
+	// printf("Place: %d , index: %d\n", current->queuePlace, current->index);
+	for (count; count < locate-1; count++)
+	{
+		current = current->next;
+	}
+	// printf("Got Previous\n ");
+	// printf("Place: %d , index: %d\n", current->queuePlace, current->index);
+	
+	temp_node = current->next;
+	retval = temp_node->queuePlace;
+	current->next = temp_node->next;
+	free(temp_node);
+	// printf("now Current is\n ");
+	// printf("Place: %d , index: %d\n", current->queuePlace, current->index);
+	// printQueue(*head);
+	
+	current = current->next;
+	while(current != NULL) //
+	{
+		current->queuePlace -=1;
+		current = current->next;
+	}
+
+	current = *head;
+	/* decrementing so I can keep track of what in my queue */
+	if(current->index == 1000)
+		--queue0Location;
+	else if(current->index == 1001)
+		--q1Location;
+	else if(current->index == 1002)
+		--q2Location;
+	else if(current->index == 1003)
+		--q3Location;
+
+	return;
+}
+int random_number(int min_num, int max_num)
+{
+  if (max_num > 10000000) //This was done beacuse fast Rand can't take a big number
+  {
+	  int randNum = min_num;
+	  int result =0,low_num=0,hi_num=0;
+	  if(min_num < max_num)
+	  {
+		low_num=min_num;
+		hi_num=max_num+1;
+	  }
+	  else
+	  {
+		low_num=max_num+1;
+		hi_num=min_num;
+	  }
+	  srand(time(NULL) - (getpid()*2*randNum));
+	  result = (rand()%(hi_num-low_num))+low_num;
+	  return result;  
+  }
+  else
+  {
+	  int randNum = min_num;
+	  int result =0,low_num=0,hi_num=0;
+	  if(min_num < max_num)
+	  {
+		low_num=min_num;
+		hi_num=max_num+1;
+	  }
+	  else
+	  {
+		low_num=max_num+1;
+		hi_num=min_num;
+	  }
+	  srand(time(NULL) - (getpid()*2*randNum));
+	  result = (fast_rand()%(hi_num-low_num))+low_num;
+	  return result;
+  }
+}
+int findValidPCB()
+{
+	int i = 0;
+	for (i; i < x; i++)
+	{
+		if(pcb[i].valid == 0) //if its no longer being used I can place another here
+		{
+			if(pcb[i].userPid > 0) //This is a check, If I failed to kill a pcb
+			{
+				printf("Please don't Happen\n");
+				kill(pcb[i].userPid,SIGUSR1);
+			}
+			// printf("I'm return pcb that's free %d\n", pcb[i].userPid);	
+			return i;
+		}
+	}
+	return -1;
+}
+int getRandFork()
+{
+	int forkAtRand = 0;
+	forkAtRand = computerTime->second + random_number(0,2);	
+	// if(forkAtRand == computerTime->second)
+		// forkAtRand = computerTime->second + random_number(0,2);
+	return forkAtRand;
+}
+void setUpPCB(int i, pid_t childPid)
+{
+	pcb[i].userPid = childPid;
+	pcb[i].valid = 1; //setting the user to be valid so it can't be replaced
+	pcb[i].fullRunTime = random_number(childPid+100000,childPid+100000000000000); //picking random time for the user
+	pcb[i].timeInSys = 0;
+	pcb[i].turn = -1;
+	
+	/*picking which queue the process will be in */
+
+
+	int chance = 0;
+	chance = random_number(0,99);
+	
+	if(chance < 15) //15% chance out of a 0-99
+	{
+		pcb[i].priority = 0; // setting it for queue0
+		pcb[i].timeQuantum = 5000000;
+		insertINqueue(queue0, i);
+	}
+	else
+	{
+		pcb[i].priority = 1; // setting it for queue0
+		pcb[i].timeQuantum = 3000000;
+		insertINqueue(q1, i);
+	}
+}
+void resetPCB(int i)
+{
+	// printf("\t\t Resetting PCB: %d\n", pcb[i].userPid);
+	kill(pcb[i].userPid,SIGUSR1);
+	// wait(NULL);
+	pcb[i].userPid = 0;
+	pcb[i].valid = 0; //setting the user to be valid so it can't be replaced
+	pcb[i].fullRunTime = 0; //picking random time for the user
+	pcb[i].timeInSys = 0;
+	pcb[i].turn = -1;
+	pcb[i].timeQuantum = 0; // time quantum  dependent on which priority
+	pcb[i].priority = 0;
+	pcb[i].intIO = 0;
+}
+int getIO(pid_t childPid)
+{
+	int chance = 0;
+	chance = random_number(0,99);
+	// printf("Chance %d\n", chance);
+	if(chance <=9) /* Currently at 2% chance for the user to have I/O */
+	{
+		ioCount++; //just recording the times I/O was called
+		return 1;
+	}
+	else 
+	{
+		return 0;
+	}
+}
+
+void printToFile(int choice, int index)
+{
+	/*Choice 99 is like the End statistics so I need to print that */
+	if(printLineCount >= 1000 && choice != 99) //going from 0 to 2000 Lines
+		return;
+	else
+		printLineCount++;
+	
+	
+	int c = choice;
+	switch (c)
+	{
+		case 0:
+			fprintf(filePtr,"\tComputerTime: %d.%010d | ", computerTime->second,computerTime->nanoSec);
+			fprintf(filePtr,"Child Death Pid: %d | valid: %d | Queue %d | timeQuantum %d | ",pcb[index].userPid,pcb[index].valid,pcb[index].priority,pcb[index].timeQuantum);
+			fprintf(filePtr,"timeInSys %d | FullRunTime %d\n", pcb[index].timeInSys, pcb[index].fullRunTime);
+			break;
+		case 1:
+			fprintf(filePtr,"->");
+			fprintf(filePtr,"Child Created: %d.%010d | ", computerTime->second,computerTime->nanoSec);
+			fprintf(filePtr,"Process #%d Pid: %d", index,pcb[index].userPid);
+			fprintf(filePtr," Am I valid: %d ", pcb[index].valid);
+			fprintf(filePtr," Queue: %d ", pcb[index].priority);
+			fprintf(filePtr," FullRunTime: %d\n", pcb[index].fullRunTime);
+			break;
+		case 2:
+			fprintf(filePtr, "\t\t\tChild Pid %d in Q3 Had IO Moving to Q1 \n", pcb[index].userPid);
+			break;
+		case 3:
+			fprintf(filePtr, "\t\t\tChild Pid %d in Q2 Had IO Moving to Q1 \n", pcb[index].userPid);
+			break;
+		case 4:
+			fprintf(filePtr,"\t\t\t\tChild Pid %d Moving form Q2 to Q3\n", pcb[index].userPid);
+			break;
+		case 5:
+			fprintf(filePtr,"\t\t\tI/O called Priority Q%d | Pid %d | at Time During Execution: %d\n", pcb[index].priority, pcb[index].userPid, pcb[index].randIOTime);
+			break;
+		case 99:
+			fprintf(filePtr, "\n------Statistics------------\n");
+			printf("\n------Statistics------------\n");
+			
+			fprintf(filePtr, "Program End time------------------:%d.%010d\n", computerTime->second, computerTime->nanoSec);
+			printf("Program End time------------------:%d.%010d\n", computerTime->second, computerTime->nanoSec);
+			
+			fprintf(filePtr, "\nTotal Process Made----------------:%d\n",processMade);
+			printf("\nTotal Process Made----------------:%d\n",processMade);
+			
+			fprintf(filePtr, "\nTotal Process Finished Execution--:%d\n", processFinished);
+			printf("\nTotal Process Finished Execution--:%d\n", processFinished);
+			
+			
+			fprintf(filePtr, "\nTotal IO count -------------------:%d\n", ioCount);
+			printf("\nTotal IO count -------------------:%d\n", ioCount);
+			
+			
+			fprintf(filePtr, "\nIdle Time-------------------------:%d.%010d\n", computerTime->idleTimeSec,computerTime->idleTimeNano);
+			printf("\nIdle Time-------------------------:%d.%010d\n", computerTime->idleTimeSec,computerTime->idleTimeNano);
+			
+			
+			fprintf(filePtr, "\nTotal OverHead Time---------------:%d.%010d\n", computerTime->overHeadSec,computerTime->overHeadNano);
+			printf("\nTotal OverHead Time---------------:%d.%010d\n", computerTime->overHeadSec,computerTime->overHeadNano);
+			
+			fprintf(filePtr, "\nTotal In System time--------------:%d.%010d\n", computerTime->TotalSecInSys,computerTime->TotalNanoInSys);
+			printf("\nTotal In System time--------------:%d.%010d\n", computerTime->TotalSecInSys,computerTime->TotalNanoInSys);
+			
+			
+			fprintf(filePtr, "\nTotal user wait time--------------:%d.%010d\n", computerTime->userWaitSec,computerTime->userWaitSec);
+			printf("\nTotal user wait time--------------:%d.%010d\n", computerTime->userWaitSec,computerTime->userWaitSec);
+			
+			calc(processMade,computerTime->TotalSecInSys,computerTime->TotalNanoInSys);
+			calc2(processMade,computerTime->userWaitSec,computerTime->userWaitSec);
+			break;
+	}
+}
+void calc (int pm, int sec, int nsec)
+{
+	int ans = 0;
+	int ans2 = 0;
+	int remainder = 0;
+	remainder = sec % pm;
+	ans = sec / pm;
+	ans2 = (nsec+ remainder) / pm;	
+	fprintf(filePtr, "\nAverage TurnAroundTime------------:%d.%010d\n", ans,ans2);
+	printf("\nAverage TurnAroundTime------------:%d.%010d\n", ans,ans2);
+}
+void calc2 (int pm, int sec, int nsec)
+{
+	int ans = 0;
+	int ans2 = 0;
+	int remainder = 0;
+	remainder = sec % pm;
+	ans = sec / pm;
+	ans2 = (nsec+ remainder) / pm;	
+	fprintf(filePtr, "\nAverage Wait time-----------------:%d.%010d\n",ans,ans2);
+	printf("\nAverage Wait time-----------------:%d.%010d\n",ans,ans2);
+}
+
+@
+
+
+1.3
+log
+@Checking in on the last moment so I don't mess up
+@
+text
+@d46 2
+d49 10
+a58 1
+	computerTime->second  = 0; //starting at ) seconds
+d399 1
+a399 1
+			fprintf(filePtr,"\tPid %d | IO called at %d\n", pcb[current->index].userPid, pcb[current->index].randIOTime);
+d448 1
+a448 1
+		pcb[current->index].timeQuantum = 2000000; //resetting the time Quantum to origianl 
+d451 1
+d456 2
+a457 1
+			
+d517 1
+a517 1
+		pcb[current->index].timeQuantum = 2000000; //resetting the time Quantum to origianl 
+d525 1
+d586 1
+a586 1
+		pcb[current->index].timeQuantum = 2000000; //resetting the time Quantum to origianl 
+d594 1
+d947 1
+a947 1
+		pcb[i].timeQuantum = 50000000;
+d953 1
+a953 1
+		pcb[i].timeQuantum = 2000000;
+d968 2
+d976 1
+a976 1
+	if(chance <=2) /* Currently at 2% chance for the user to have I/O */
+d978 1
+d990 1
+a990 1
+	if(printLineCount >= 2000 && choice != 99) //going from 0 to 2000 Lines
+d1006 2
+a1007 1
+			fprintf(filePtr,"Child Created #%d Pid: %d", index,pcb[index].userPid);
+d1021 3
+d1026 32
+a1057 8
+			fprintf(filePtr, "Program End time %d.%010d\n", computerTime->second, computerTime->nanoSec);
+			fprintf(filePtr, "Total Process Made : %d \n",processMade);
+			fprintf(filePtr, "Total Process Finished Execution : %d\n", processFinished);
+			fprintf(filePtr, "Total OverHead Time: %d.%010d\n", computerTime->overHeadSec,computerTime->overHeadNano);
+			fprintf(filePtr, "Idle Time: %d.%010d  \n", computerTime->idleTimeSec,computerTime->idleTimeNano);
+			fprintf(filePtr, "Total In System time: %d.%010d\n", computerTime->TotalSecInSys,computerTime->TotalNanoInSys);
+			fprintf(filePtr, "Average TurnAroundTime : \n");
+			fprintf(filePtr, "Average Wait time : \n");
+d1061 23
+@
+
+
+1.2
+log
+@Trying so hard to finish.
+@
+text
+@a3 11
+int z = 20; //The Seconds time limit on the children running 
+int x = 5; //Number of slaves 
+int pcbArr[18]; //keep track of the pcb's
+queue *queue0 = NULL; // holds queue0 
+systemClock *computerTime;
+
+PCB *pcb; //making array of structs
+int pcbID = 0;
+int clockID = 0; // Id for 
+key_t PCBkey = 1994; // Key for the pcb
+key_t Clockkey = 1991;
+d24 8
+d34 1
+a34 1
+    {
+d46 2
+d65 1
+d69 3
+d73 1
+a73 23
+	int i = 0; // counter for the for loop
+	for (i; i < x; i++) // setting up initial X (default 5) children
+	{ 
+		pid_t childPid;
+		childPid = fork();
+		
+		if (childPid < 0)
+		{
+			perror("Fork() Failed"); 
+			exit(1); 
+		}
+		else if (childPid == 0)
+		{
+			sprintf(pcbArrLocationPass, "%d" , i);
+			execl("./user",pcbArrLocationPass, pcbKeypass, NULL);
+			perror("Child failed to execl");
+		}
+		//memcpy(&pcb[i],&data,sizeof(PCB));
+		pcb[i].userPid = childPid;
+		// insertINqueue(&queue0,i);
+		
+		printf("Running User #%d Pid: %d\n\n", i,pcb[i].userPid);
+	}
+d76 38
+a113 2
+	int tempTime = 0; 
+	//int i = 0;
+d115 2
+a116 1
+	/*while (1)
+d118 1
+a118 1
+		if(computerTime->second >= 100)
+d120 3
+a122 3
+			printf("out of time\n");
+		    releaseMem();
+			exit(1);
+d125 1
+a125 1
+		if(computerTime->nanoSec >= NANOSECOND)
+d127 8
+a134 2
+			computerTime->second +=1;
+			computerTime->nanoSec = 0;
+d136 12
+a147 1
+		computerTime->nanoSec+=100;
+d151 1
+a151 1
+			if (i < x)
+d153 14
+a166 2
+				pid_t childPid;
+				childPid = fork();
+d168 15
+a182 20
+				if (childPid < 0)
+				{
+					perror("Fork() Failed"); 
+					exit(1); 
+				}
+				else if (childPid == 0)
+				{
+					sprintf(pcbArrLocationPass, "%d" , i);
+					execl("./user",pcbArrLocationPass, keypass,NULL);
+					perror("Child failed to execl");
+				}
+				i++;
+			}	
+			tempTime = 0;
+			tempTime = computerTime->second + 3;
+			printf("forkAtRand: %d\n", forkAtRand);
+			forkAtRand = random_number(computerTime->second,tempTime);
+		}
+	}*/
+	// sleep(10);
+a188 1
+
+d325 2
+a326 1
+	printf("Running Program.\n");
+d329 1
+a329 1
+{ 
+d334 2
+a335 2
+	/*int i =0;
+	for (i=0; i<100;i++)
+d337 2
+a338 2
+		kill(pidArr[x], SIGQUIT); // killing em child by children
+	}*/
+d345 1
+d347 2
+a348 2
+	/*int i = 0;
+	for (i=0; i<100;i++)
+d350 3
+a352 2
+		kill(pidArr[x], SIGTERM); // killing em child by children
+	}*/
+d357 2
+d366 6
+a371 2
+	}/*	
+	if ((msgctl(dieMsgID, IPC_RMID, NULL) == -1))
+d373 110
+a482 2
+		perror("Erorr in msgctl ");
+	}	*/
+d484 1
+a484 1
+void insertINqueue(queue **head, int index)
+d486 5
+a490 1
+	if (*head == NULL)
+d492 274
+a765 5
+		queue *new_node;
+		*head = new_node;
+		new_node = malloc(sizeof(queue));
+		new_node->index = index;
+		new_node->next = NULL;
+d769 29
+a797 2
+		queue *new_node;
+		new_node = malloc(sizeof(queue));
+d799 50
+a848 3
+		new_node->index = index;
+		new_node->next = *head;
+	}	
+d852 1
+a852 2
+  int result =0,low_num=0,hi_num=0;
+  if(min_num < max_num)
+d854 15
+a868 2
+    low_num=min_num;
+    hi_num=max_num+1;
+d872 15
+a886 2
+    low_num=max_num+1;
+    hi_num=min_num;
+a887 3
+  srand(time(NULL) - getpid()*2);
+  result = (rand()%(hi_num-low_num))+low_num;
+  return result;
+d889 81
+a969 1
+void printQueue(queue *head)
+d971 5
+d977 37
+@
+
+
+1.1
+log
+@Initial revision
+@
+text
+@d1 2
+a2 1
+#include<iostream>
+d4 5
+d10 7
+a16 1
+int main()
+d18 129
+d148 149
+d298 67
+a364 1
+  return 0;
+@
